@@ -40,10 +40,10 @@ function summary(row: Record<string, unknown>) {
 }
 
 export function listWorkflows(db: Db) {
-  const rows = db.prepare(`SELECT ${columns}, json_extract(definition, '$.name') AS name,
+  const rows = db.prepare(`SELECT ${columns}, definition -> '$.name' AS name,
     json_extract(definition, '$.status') AS status FROM versions v WHERE version =
     (SELECT MAX(version) FROM versions WHERE workflow_id = v.workflow_id) ORDER BY workflow_id`).all();
-  return { workflows: rows.map(row => ({ ...summary(row), name: storedText(row.name), status: storedText(row.status) })) };
+  return { workflows: rows.map(row => ({ ...summary(row), name: storedText(JSON.parse(storedText(row.name))), status: storedText(row.status) })) };
 }
 
 export function history(db: Db, id: string) {

@@ -25,7 +25,7 @@ Pass a JSON object on stdin or with `--in file.json`. Use `--db` to select a dat
 
 | Command | Access | Input | Result in `data` |
 | --- | --- | --- | --- |
-| `commands` | read (no database) | none | Command names, access and input requirements |
+| `commands` | none | none | Command names, access and input requirements |
 | `selfcheck` | write | none | Runtime, binary hash, database integrity, migrations and problems |
 | `workflow put` | write | `{workflow, idem_key?, actor?}` | `workflow_id, version, changed` |
 | `workflow get` | read | `{id, version?}` | Definition under `workflow`, version, actor, time and command |
@@ -34,12 +34,12 @@ Pass a JSON object on stdin or with `--in file.json`. Use `--db` to select a dat
 | `rule set` | write | `{workflow_id, rule, idem_key?, actor?}` | Saved version and change flag |
 | `rule enable` | write | `{workflow_id, rule_id, idem_key?, actor?}` | Saved version and change flag |
 | `rule disable` | write | `{workflow_id, rule_id, idem_key?, actor?}` | Saved version and change flag |
-| `evaluate` | read by default, write with `record:true` | `{workflow_id or workflow, item, version?, record?, idem_key?}` | `path, steps, outcome` |
+| `evaluate` | write | `{workflow_id or workflow, item, version?, record?, idem_key?}` | `path, steps, outcome` |
 | `trace list` | read | `{workflow_id?, limit?}` | Newest `traces` first, including IDs and outcomes. Default 50, range 1–1000 |
 | `trace get` | read | `{id}` | Full `trace` by integer ID |
 | `seed` | write | `{idem_key?, actor?}` | Created IDs and number skipped |
 
-`workflow get` and stored `evaluate` default to the latest version. Inline previews can run before `selfcheck`. Database reads use read-only connections and require a current schema. Writes migrate first. Each change and its optional retry receipt commit in one transaction. Use one `idem_key` per intended write and reuse it for retries. A retry returns the original data, including after later edits. An unchanged definition keeps its version. Object key order has no effect on equality. Array order matters. The default actor is `caller`.
+`workflow get` and stored `evaluate` default to the latest version. An inline preview opens no database. A stored preview opens the database read-only. With `record:true`, either form writes a trace. Database reads use read-only connections and require a current schema. Writes migrate first. Each change and its optional retry receipt commit in one transaction. Use one `idem_key` per intended write and reuse it for retries. A retry returns the original data, including after later edits. An unchanged definition keeps its version. Object key order has no effect on equality. Array order matters. The default actor is `caller`.
 
 `rule set` replaces a rule with the same ID in place or appends a new rule. Use `workflow put` to reorder rules. `seed` inserts only missing workflows. The six examples cover inbound email routing, anti-phishing, software delivery, customer onboarding, compliance deadlines and scheduling. Sample items live beside the [definitions](src/examples/demo).
 
@@ -61,7 +61,7 @@ The [schema](src/domain/schema.ts) defines `Workflow`, `WorkflowItem` and the va
 }
 ```
 
-Nodes accept optional `badge` and `icon`. Status is `ok`, `warn` or `error`. Identifiers must be well-formed Unicode. The item field `__proto__` is reserved and produces `E_INPUT_SCHEMA`. Items map field names to strings, numbers, booleans or lists of strings. A clause value is a scalar or a list of strings and numbers. Rule actions may carry a `params` object.
+Nodes accept optional `badge` and `icon`. Status is `ok`, `warn` or `error`. All input strings, including JSON member names, must be well-formed Unicode. The member names `__proto__`, `constructor` and `prototype` produce `E_INPUT_SCHEMA` at any depth. Items map field names to strings, numbers, booleans or lists of strings. A clause value is a scalar or a list of strings and numbers. Rule actions may carry a `params` object.
 
 Evaluation starts at the first trigger. At a condition, the first enabled rule whose clauses all pass selects the edge labeled with its action. An empty clause list matches. The fallback is the first edge labeled `else`, followed in preference by the first unlabeled edge. The trace records attempted rules, including disabled rules, with their reasons. A human node with a successor continues the preview. A terminal node returns its ID as the outcome action. A cycle, ambiguous successor or missing route produces a `stopped` outcome with error status.
 
@@ -82,7 +82,7 @@ Recording saves the workflow ID, version, item, SHA-256 of its canonical JSON, p
 
 ## Local vs hosted
 
-Each bot computer runs its own binary and database and forms the tenant boundary. The default database is `$AMBITIOUS_HOME/rules/rules.sqlite`, with `AMBITIOUS_HOME` defaulting to `/workspace/ambitious`. The kit refuses paths under `/home/box/agent-data/`. This release has no UI, scheduler, hosted service or network calls.
+Each bot computer runs its own binary and database and forms the tenant boundary. The default database is `$AMBITIOUS_HOME/rules/rules.sqlite`, with `AMBITIOUS_HOME` defaulting to `/workspace/ambitious`. Rule 3 applies to paths in JSON member names and string values, including the trimmed `idem_key`. Paths under `/home/box/agent-data/` produce `E_FORBIDDEN_PATH`. This release has no UI, scheduler, hosted service or network calls.
 
 Durable execution is planned for a separate Vercel Workflow SDK runner using Local World. In that design, `@workflow/world-local` owns runs, steps, events, retries and human waits in `.workflow-data/world.db` through `node:sqlite`. That second database belongs in a separate process because the module contract permits one SQLite file per module. The rules database holds definitions, versions, evaluation traces and write receipts. Evaluating an item selects and explains a route. Executing its actions belongs to the runner.
 

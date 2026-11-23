@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Db } from "@ambitious/kit/db/open-db";
 import { failure } from "@ambitious/kit/domain/failure";
-import type { JsonObject } from "@ambitious/kit/domain/json";
-import { z } from "zod";
+import { isRecord, type JsonObject, type JsonValue } from "@ambitious/kit/domain/json";
 import { canonicalJson } from "../domain/encoding.ts";
 
 export const hash = (text: string): string => createHash("sha256").update(text).digest("hex");
@@ -13,7 +12,9 @@ export function storedText(value: unknown): string {
 }
 
 export function storedObject(value: unknown): JsonObject {
-  return z.record(z.string(), z.json()).parse(JSON.parse(storedText(value)));
+  const parsed: JsonValue = JSON.parse(storedText(value));
+  if (isRecord(parsed)) return parsed;
+  throw failure("E_DB", "A stored JSON object is invalid.", "Run selfcheck and check your database backup.");
 }
 
 export function withReceipt(db: Db, command: string, input: { idem_key?: string | undefined },

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -7,6 +8,19 @@ import { openDb } from "@ambitious/kit/db/open-db";
 import { items, object, run, scratch, success } from "./cli-helper.ts";
 import { fixture } from "./fixture.ts";
 import { rule } from "../src/examples/seedData.ts";
+import { canonicalJson } from "../src/domain/encoding.ts";
+
+function workflowWithParams(params: Record<string, unknown>) {
+  const workflow = fixture();
+  for (const rule of workflow.rules) rule.then.params = params;
+  return workflow;
+}
+
+function assertRejected(home: string, command: string, input: unknown, code: string) {
+  const result = run(home, command, input);
+  assert.equal(result.status, 1, result.stdout);
+  assert.equal(object(items(result.envelope.errors)[0]).code, code);
+}
 
 test("a write key replays its original response after later edits and rejects conflicting requests", t => {
   const home = scratch(t);
@@ -53,14 +67,15 @@ test("stored previews require the current schema and inline previews leave a fre
 
 test("inline traces reproduce the submitted draft and retain one row across keyed retries", t => {
   const home = scratch(t);
-  const workflow = fixture();
+  const workflow = workflowWithParams({ nested: [{ z: true, a: ["prototype", "constructor", "__proto__"] }] });
   const request = { workflow, item: { b: 1, a: 2 }, record: true, idem_key: "once" };
   const result = success(home, "evaluate", request);
   assert.deepEqual(success(home, "evaluate", { ...request, item: { a: 2, b: 1 } }), result);
   assert.deepEqual(success(home, "workflow list").workflows, []);
   assert.equal(items(success(home, "trace list").traces).length, 1);
   const trace = object(success(home, "trace get", { id: 1 }).trace);
-  assert.match(String(trace.version), /^sha256:[0-9a-f]{64}$/);
+  assert.deepEqual(trace.workflow, JSON.parse(JSON.stringify(workflow)));
+  assert.equal(trace.version, `sha256:${createHash("sha256").update(canonicalJson(trace.workflow)).digest("hex")}`);
   assert.deepEqual(success(home, "evaluate", { workflow: trace.workflow, item: trace.item }), result);
   assert.deepEqual(trace.steps, result.steps);
 });
@@ -100,6 +115,7 @@ test("recorded evaluations reject private paths and reserved item fields before 
   const requests = [
     [{ filePath: "/home/box/agent-data/example.json" }, "E_FORBIDDEN_PATH"],
     [{ files: [join(alias, "example.json")] }, "E_FORBIDDEN_PATH"],
+    [{ [join(alias, "example.json")]: "file" }, "E_FORBIDDEN_PATH"],
     [{ ["__proto__"]: "blue" }, "E_INPUT_SCHEMA"],
   ] as const;
   for (const [item, code] of requests) {
@@ -109,6 +125,80 @@ test("recorded evaluations reject private paths and reserved item fields before 
     assert.equal(existsSync(join(home, "rules")), false);
   }
   success(home, "evaluate", { workflow, item: {}, record: true, idem_key: "first" });
+});
+
+test("writes reject reserved JSON member names in rules and items before opening storage", t => {
+  const home = scratch(t);
+  for (const key of ["__proto__", "constructor", "prototype"]) {
+    const member = { [key]: "value" };
+    const direct = workflowWithParams(member);
+    const nested = workflowWithParams({ entries: [member] });
+    for (const workflow of [direct, nested]) {
+      assertRejected(home, "workflow put", { workflow, idem_key: "put" }, "E_INPUT_SCHEMA");
+      assertRejected(home, "rule set", { workflow_id: workflow.id, rule: workflow.rules[0] }, "E_INPUT_SCHEMA");
+      assertRejected(home, "evaluate", { workflow, item: {}, record: true }, "E_INPUT_SCHEMA");
+    }
+    assertRejected(home, "evaluate", { workflow: fixture(), item: member, record: true }, "E_INPUT_SCHEMA");
+  }
+  assert.equal(existsSync(join(home, "rules")), false);
+});
+
+test("private parameter names and trimmed receipt keys fail before database and receipt creation", t => {
+  const home = scratch(t);
+  const filename = "/home/box/agent-data/example.json";
+  const workflow = workflowWithParams({ entries: [{ [filename]: true }] });
+  const requests = [
+    { workflow, idem_key: "unused" },
+    { workflow: fixture(), idem_key: ` \t${filename}\n` },
+  ];
+  for (const request of requests) assertRejected(home, "workflow put", request, "E_FORBIDDEN_PATH");
+  assert.equal(existsSync(join(home, "rules")), false);
+  success(home, "selfcheck");
+  for (const request of requests) assertRejected(home, "workflow put", request, "E_FORBIDDEN_PATH");
+  const db = openDb(join(home, "rules/rules.sqlite"), { readonly: true });
+  t.after(() => db.close());
+  assert.equal(db.prepare("SELECT count(*) AS n FROM receipts").get()?.n, 0);
+  assert.equal(db.prepare("SELECT count(*) AS n FROM versions").get()?.n, 0);
+});
+
+test("workflow and evaluation input reject lone surrogates in names, member names and values", t => {
+  const home = scratch(t);
+  const workflow = fixture();
+  for (const bad of ["\ud800", "\udfff"]) {
+    for (const definition of [
+      { ...workflow, name: bad },
+      workflowWithParams({ entries: [{ [bad]: 1 }] }),
+      workflowWithParams({ entries: [bad] }),
+      { ...workflow, nodes: workflow.nodes.map(node => ({ ...node, label: bad })) },
+    ]) assertRejected(home, "workflow put", { workflow: definition }, "E_INPUT_SCHEMA");
+    for (const item of [{ [bad]: "value" }, { list: [bad] }]) {
+      assertRejected(home, "evaluate", { workflow, item, record: true }, "E_INPUT_SCHEMA");
+    }
+  }
+  assert.equal(existsSync(join(home, "rules")), false);
+  const name = "Route \u{1f680}";
+  success(home, "workflow put", { workflow: { ...workflow, name } });
+  assert.equal(object(success(home, "workflow get", { id: workflow.id }).workflow).name, name);
+  assert.equal(object(items(success(home, "workflow list").workflows)[0]).name, name);
+});
+
+test("reads preserve member names and Unicode escapes in previously stored definitions", t => {
+  const home = scratch(t);
+  success(home, "selfcheck");
+  const db = openDb(join(home, "rules/rules.sqlite"), { readonly: false });
+  t.after(() => db.close());
+  const workflow = workflowWithParams({ entries: [{ ["__proto__"]: 1 }] });
+  workflow.name = "Route \ud800";
+  const definition = canonicalJson(workflow);
+  const digest = createHash("sha256").update(definition).digest("hex");
+  db.prepare("INSERT INTO versions VALUES (?, 1, ?, 'caller', '2026-01-01', 'workflow put')").run(workflow.id, definition);
+  db.prepare(`INSERT INTO traces (workflow_id, inline_definition, inline_hash, item_hash, item, evaluation, at)
+    VALUES (?, ?, ?, ?, '{}', '{}', '2026-01-01')`).run(workflow.id, definition, digest, createHash("sha256").update("{}").digest("hex"));
+  assert.deepEqual(success(home, "workflow get", { id: workflow.id }).workflow, JSON.parse(definition));
+  assert.equal(object(items(success(home, "workflow list").workflows)[0]).name, workflow.name);
+  const trace = object(success(home, "trace get", { id: 1 }).trace);
+  assert.deepEqual(trace.workflow, JSON.parse(definition));
+  assert.equal(trace.version, `sha256:${createHash("sha256").update(canonicalJson(trace.workflow)).digest("hex")}`);
 });
 
 test("malformed Unicode identifiers fail on creation and lookup", t => {

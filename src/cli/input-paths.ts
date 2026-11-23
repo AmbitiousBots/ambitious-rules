@@ -2,7 +2,9 @@ import { readlinkSync } from "node:fs";
 import { dirname, isAbsolute, join, parse, sep } from "node:path";
 import type { Command } from "@ambitious/kit/cli/command";
 import { failure } from "@ambitious/kit/domain/failure";
+import { isRecord } from "@ambitious/kit/domain/json";
 import { AGENT_DATA_ROOT } from "@ambitious/kit/paths/refuse-agent-data";
+import { normalizeReceiptKey } from "../domain/requests.ts";
 
 function linkAt(path: string) {
   try {
@@ -63,10 +65,16 @@ export function checkInputPaths(command: Command): Command {
       while (pending.length) {
         const value = pending.pop();
         if (typeof value === "string") checkPath(value);
-        if (value !== null && typeof value === "object") {
-          for (const child of Object.values(value)) pending.push(child);
+        if (Array.isArray(value)) {
+          for (const child of value) pending.push(child);
+        } else if (isRecord(value)) {
+          for (const [key, child] of Object.entries(value)) {
+            checkPath(key);
+            pending.push(child);
+          }
         }
       }
+      if (isRecord(raw) && typeof raw.idem_key === "string") checkPath(normalizeReceiptKey(raw.idem_key));
       return command.parse(raw);
     },
   };

@@ -18,8 +18,12 @@ const names = ["commands", "selfcheck", "workflow put", "workflow get", "workflo
 
 export const features: Record<string, (home: string) => void> = {
   commands(home) {
-    const entries = items(success(home, "commands").commands);
-    assert.deepEqual(entries.map(entry => object(entry).name), [...names].sort());
+    const entries = items(success(home, "commands").commands).map(object);
+    assert.deepEqual(entries.map(entry => entry.name), [...names].sort());
+    const readme = readFileSync("README.md", "utf8").split("## Commands\n")[1]?.split("\n## ")[0] ?? "";
+    const documented = [...readme.matchAll(/^\| `([^`]+)` \| ([^|]+) \|/gm)];
+    assert.deepEqual(Object.fromEntries(documented.map(([, name, access]) => [name, access])),
+      Object.fromEntries(entries.map(entry => [entry.name, entry.access])));
   },
   selfcheck(home) {
     const first = success(home, "selfcheck");
@@ -28,6 +32,10 @@ export const features: Record<string, (home: string) => void> = {
     assert.deepEqual(object(success(home, "selfcheck").db).migrationsApplied, []);
   },
   "workflow-put"(home) {
+    const invalid = { ...workflow, name: "\ud800" };
+    const rejected = run(home, "workflow put", { workflow: invalid });
+    assert.equal(rejected.status, 1);
+    assert.equal(object(items(rejected.envelope.errors)[0]).code, "E_INPUT_SCHEMA");
     assert.deepEqual(put(home), { workflow_id: id, version: 1, changed: true });
     assert.deepEqual(put(home), { workflow_id: id, version: 1, changed: false });
     assert.equal(success(home, "workflow put", { workflow: { ...workflow, name: "Changed" } }).version, 2);

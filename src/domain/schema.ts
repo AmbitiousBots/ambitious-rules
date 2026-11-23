@@ -1,5 +1,28 @@
 import { z } from "zod";
 
+const reservedKeys = new Set(["__proto__", "constructor", "prototype"]);
+const inputStrings = z.unknown().superRefine((input, ctx) => {
+  const pending: unknown[] = [input];
+  const visited = new WeakSet<object>();
+  while (pending.length) {
+    const value = pending.pop();
+    if (typeof value === "string" && !value.isWellFormed()) {
+      ctx.addIssue({ code: "custom", message: "Use well-formed Unicode in JSON strings and member names." });
+      return;
+    }
+    if (value !== null && typeof value === "object" && !visited.has(value)) {
+      visited.add(value);
+      for (const [key, child] of Object.entries(value)) {
+        if (reservedKeys.has(key)) {
+          ctx.addIssue({ code: "custom", message: `The member name ${key} is reserved.` });
+          return;
+        }
+        pending.push(key, child);
+      }
+    }
+  }
+});
+
 export const identifier = z.string().min(1).refine(value => value.isWellFormed(), "Use well-formed Unicode.");
 const text = z.string().min(1);
 const status = z.enum(["ok", "warn", "error"]);
@@ -40,7 +63,7 @@ const rule = z.object({
   }),
 });
 
-export const WorkflowSchema = z
+const workflowDefinition = z
   .object({
     id: identifier,
     name: text,
@@ -82,19 +105,19 @@ export const WorkflowSchema = z
     });
   });
 
-export const WorkflowItemSchema = z.unknown().refine(
-  value => value === null || typeof value !== "object" || !Object.hasOwn(value, "__proto__"),
-  "The item field __proto__ is unsupported."
-).pipe(z.record(
+const item = z.record(
   z.string(),
   z.union([scalar, z.array(z.string())])
-));
-export const SampleItemSchema = z.object({
+);
+export const WorkflowSchema = inputStrings.pipe(workflowDefinition);
+export const RuleSchema = inputStrings.pipe(rule);
+export const WorkflowItemSchema = inputStrings.pipe(item);
+export const SampleItemSchema = inputStrings.pipe(z.object({
   id: identifier,
   label: text,
   description: text,
-  item: WorkflowItemSchema,
-});
+  item,
+}));
 export type Workflow = z.infer<typeof WorkflowSchema>;
 export type WorkflowItem = z.infer<typeof WorkflowItemSchema>;
 export type Item = WorkflowItem;
