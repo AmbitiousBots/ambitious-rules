@@ -1,0 +1,5 @@
+name = "proofs"
+defaultTargets = ["FirstMatch"]
+
+[[lean_lib]]
+name = "FirstMatch"

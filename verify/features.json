@@ -1,0 +1,67 @@
+[
+  {
+    "id": "selfcheck",
+    "userVisible": "Initialize storage and report its integrity and schema version.",
+    "check": "node verify/feature.ts selfcheck"
+  },
+  {
+    "id": "commands",
+    "userVisible": "List the available commands.",
+    "check": "node verify/feature.ts commands"
+  },
+  {
+    "id": "workflow-put",
+    "userVisible": "Save changed definitions as numbered versions.",
+    "check": "node verify/feature.ts workflow-put"
+  },
+  {
+    "id": "workflow-get",
+    "userVisible": "Read the current definition or an earlier version.",
+    "check": "node verify/feature.ts workflow-get"
+  },
+  {
+    "id": "workflow-list",
+    "userVisible": "List one current version per workflow.",
+    "check": "node verify/feature.ts workflow-list"
+  },
+  {
+    "id": "workflow-history",
+    "userVisible": "Read who changed a workflow and when.",
+    "check": "node verify/feature.ts workflow-history"
+  },
+  {
+    "id": "rule-set",
+    "userVisible": "Append a rule or replace it in its current position.",
+    "check": "node verify/feature.ts rule-set"
+  },
+  {
+    "id": "rule-enable",
+    "userVisible": "Enable a rule in a new version.",
+    "check": "node verify/feature.ts rule-enable"
+  },
+  {
+    "id": "rule-disable",
+    "userVisible": "Disable a rule and preview the changed route.",
+    "check": "node verify/feature.ts rule-disable"
+  },
+  {
+    "id": "evaluate",
+    "userVisible": "Trace a draft or a saved version without recording.",
+    "check": "node verify/feature.ts evaluate"
+  },
+  {
+    "id": "trace-list",
+    "userVisible": "Filter recorded evaluations in newest-first order.",
+    "check": "node verify/feature.ts trace-list"
+  },
+  {
+    "id": "trace-get",
+    "userVisible": "Read the item, SHA-256, route, reasons and outcome for a recorded evaluation.",
+    "check": "node verify/feature.ts trace-get"
+  },
+  {
+    "id": "seed",
+    "userVisible": "Add six examples and preserve existing edits.",
+    "check": "node verify/feature.ts seed"
+  }
+]
