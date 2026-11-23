@@ -1,7 +1,7 @@
 import type { Db } from "@ambitious/kit/db/open-db";
 import { failure } from "@ambitious/kit/domain/failure";
 import { canonicalJson } from "../domain/encoding.ts";
-import { parseWorkflow, type Workflow } from "../domain/schema.ts";
+import { validateWorkflow, type Workflow } from "../domain/schema.ts";
 import { storedObject, storedText } from "./storage.ts";
 
 const columns = "workflow_id, version, at, actor, command";
@@ -19,6 +19,15 @@ export function getVersion(db: Db, id: string, version?: number) {
     at: storedText(row.at), command: storedText(row.command) };
 }
 
+export function parseStoredWorkflow(definition: unknown): Workflow {
+  const result = validateWorkflow(definition);
+  if (result.success) return result.data;
+  const issue = result.error.issues[0];
+  const field = ["workflow", ...(issue?.path ?? [])].join(".");
+  throw failure("E_INPUT_SCHEMA", `The stored ${field} is invalid. ${issue?.message ?? "Check the workflow format."}`,
+    "Use workflow get to retrieve the definition, correct it, and save a new version with workflow put.");
+}
+
 export function saveVersion(db: Db, workflow: Workflow, command: string, at: string, actor = "caller") {
   const previous = findVersion(db, workflow.id);
   const definition = canonicalJson(workflow);
@@ -31,7 +40,7 @@ export function saveVersion(db: Db, workflow: Workflow, command: string, at: str
 
 export function editVersion(db: Db, id: string, edit: (workflow: Workflow) => Workflow, command: string, at: string, actor?: string) {
   const current = getVersion(db, id);
-  return saveVersion(db, edit(parseWorkflow(current.workflow)), command, at, actor);
+  return saveVersion(db, edit(parseStoredWorkflow(current.workflow)), command, at, actor);
 }
 
 function summary(row: Record<string, unknown>) {

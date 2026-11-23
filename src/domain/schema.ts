@@ -1,11 +1,15 @@
 import { z } from "zod";
 
 const reservedKeys = new Set(["__proto__", "constructor", "prototype"]);
-const inputStrings = z.unknown().superRefine((input, ctx) => {
+const jsonInput = z.unknown().superRefine((input, ctx) => {
   const pending: unknown[] = [input];
   const visited = new WeakSet<object>();
   while (pending.length) {
     const value = pending.pop();
+    if (typeof value === "number" && !Number.isFinite(value)) {
+      ctx.addIssue({ code: "custom", message: "Use finite numbers in JSON input." });
+      return;
+    }
     if (typeof value === "string" && !value.isWellFormed()) {
       ctx.addIssue({ code: "custom", message: "Use well-formed Unicode in JSON strings and member names." });
       return;
@@ -109,10 +113,10 @@ const item = z.record(
   z.string(),
   z.union([scalar, z.array(z.string())])
 );
-export const WorkflowSchema = inputStrings.pipe(workflowDefinition);
-export const RuleSchema = inputStrings.pipe(rule);
-export const WorkflowItemSchema = inputStrings.pipe(item);
-export const SampleItemSchema = inputStrings.pipe(z.object({
+export const WorkflowSchema = jsonInput.pipe(workflowDefinition);
+export const RuleSchema = jsonInput.pipe(rule);
+export const WorkflowItemSchema = jsonInput.pipe(item);
+export const SampleItemSchema = jsonInput.pipe(z.object({
   id: identifier,
   label: text,
   description: text,

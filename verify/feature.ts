@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { items, object, run, success } from "../test/cli-helper.ts";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { items, object, run, runRaw, success } from "../test/cli-helper.ts";
 import { check, fixture } from "../test/fixture.ts";
 import { evaluate } from "../src/domain/evaluate.ts";
 import { rule } from "../src/examples/seedData.ts";
@@ -15,6 +16,19 @@ const put = (home: string) => success(home, "workflow put", { workflow });
 const record = (home: string) => success(home, "evaluate", { workflow_id: id, item, record: true });
 const names = ["commands", "selfcheck", "workflow put", "workflow get", "workflow list", "workflow history",
   "rule set", "rule enable", "rule disable", "evaluate", "trace list", "trace get", "seed"];
+
+function checkOverflow(home: string, command: string, extra: Record<string, unknown>) {
+  const definition = fixture();
+  for (const entry of definition.rules) entry.then.params = { limits: [{ maximum: null }] };
+  const request = JSON.stringify({ workflow: definition, idem_key: "overflow", ...extra });
+  for (const literal of ["1e400", "-1e400"]) {
+    const raw = request.replace('"maximum":null', `"maximum":${literal}`);
+    const rejected = runRaw(home, command, raw);
+    assert.equal(rejected.status, 1, rejected.stdout);
+    assert.equal(object(items(rejected.envelope.errors)[0]).code, "E_INPUT_SCHEMA");
+    assert.equal(existsSync(join(home, "rules")), false);
+  }
+}
 
 export const features: Record<string, (home: string) => void> = {
   commands(home) {
@@ -32,6 +46,7 @@ export const features: Record<string, (home: string) => void> = {
     assert.deepEqual(object(success(home, "selfcheck").db).migrationsApplied, []);
   },
   "workflow-put"(home) {
+    checkOverflow(home, "workflow put", {});
     const invalid = { ...workflow, name: "\ud800" };
     const rejected = run(home, "workflow put", { workflow: invalid });
     assert.equal(rejected.status, 1);
@@ -81,6 +96,7 @@ export const features: Record<string, (home: string) => void> = {
     assert.equal(success(home, "rule disable", edit).changed, false);
   },
   evaluate(home) {
+    checkOverflow(home, "evaluate", { item, record: true });
     const rejected = run(home, "evaluate", { workflow, item: { filePath: "/home/box/agent-data/example.json" }, record: true });
     assert.equal(rejected.status, 1);
     assert.equal(object(items(rejected.envelope.errors)[0]).code, "E_FORBIDDEN_PATH");

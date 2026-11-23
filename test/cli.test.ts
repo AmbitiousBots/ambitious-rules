@@ -201,6 +201,29 @@ test("reads preserve member names and Unicode escapes in previously stored defin
   assert.equal(trace.version, `sha256:${createHash("sha256").update(canonicalJson(trace.workflow)).digest("hex")}`);
 });
 
+test("evaluating or editing an invalid stored workflow identifies the problem and how to save a correction", t => {
+  const home = scratch(t);
+  success(home, "selfcheck");
+  const db = openDb(join(home, "rules/rules.sqlite"), { readonly: false });
+  t.after(() => db.close());
+  const workflow = workflowWithParams({ entries: [{ constructor: 1 }] });
+  db.prepare("INSERT INTO versions VALUES (?, 1, ?, 'caller', '2026-01-01', 'workflow put')")
+    .run(workflow.id, canonicalJson(workflow));
+  for (const [command, input] of [
+    ["evaluate", { workflow_id: workflow.id, version: 1, item: {} }],
+    ["rule disable", { workflow_id: workflow.id, rule_id: "decide-yes" }],
+  ] as const) {
+    const result = run(home, command, input);
+    assert.equal(result.status, 1, result.stdout);
+    const error = object(items(result.envelope.errors)[0]);
+    assert.equal(error.code, "E_INPUT_SCHEMA");
+    assert.match(String(error.message), /constructor/);
+    assert.match(String(error.hint), /workflow put/);
+  }
+  assert.equal(success(home, "workflow put", { workflow: fixture() }).version, 2);
+  assert.deepEqual(success(home, "workflow get", { id: workflow.id, version: 1 }).workflow, JSON.parse(canonicalJson(workflow)));
+});
+
 test("malformed Unicode identifiers fail on creation and lookup", t => {
   const home = scratch(t);
   const id = "\ud800";
