@@ -1,0 +1,10 @@
+{
+  "Overwrite": {
+    "invariant": "TraceReplays",
+    "because": "Overwriting a version changes the definition attached to a recorded trace."
+  },
+  "Replay": {
+    "invariant": "OneVersionPerKey",
+    "because": "Accepting a used key can append more versions than there were independent requests."
+  }
+}
