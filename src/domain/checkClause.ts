@@ -1,3 +1,4 @@
+import { RE2JS } from "re2js";
 import { lookalikeOf } from "./lookalike.ts";
 import type { Workflow, WorkflowItem } from "./schema.ts";
 
@@ -5,17 +6,6 @@ type Clause = Workflow["rules"][number]["when"][number];
 type Value = Clause["value"];
 type Actual = WorkflowItem[string];
 
-const labels = new Map(
-  Object.entries({
-    amount: "Invoice amount",
-    language: "Language detected",
-    senderDomain: "Sender domain",
-    ciMachine: "CI machine",
-    reviewOnExactHead: "Independent review on this revision",
-    mainStatus: "Main branch status",
-    daysUntilDue: "Days until the deadline",
-  })
-);
 const wordBreak = /(?<=[a-z])(?=[A-Z])/gu;
 
 function display(value: Value | Actual): string {
@@ -36,7 +26,8 @@ function contains(actual: Actual, value: Value) {
 function matches(actual: Actual, value: Value) {
   if (typeof actual === "string" && typeof value === "string") {
     try {
-      return new RegExp(value, "iu").test(actual);
+      if (value.length > 1024) return "invalid regex";
+      return RE2JS.compile(value, RE2JS.CASE_INSENSITIVE | RE2JS.LOOKBEHINDS).test(actual);
     } catch {
       return "invalid regex";
     }
@@ -97,7 +88,7 @@ const phrases = {
 
 export function checkClause(clause: Clause, item: WorkflowItem) {
   const { field, op, value } = clause;
-  const label = labels.get(field) ?? field.replace(wordBreak, " ");
+  const label = field.replace(wordBreak, " ");
   const actual = item[field];
   if (actual === undefined || !Object.hasOwn(item, field)) {
     return { passed: false, reason: `${label} is missing` };

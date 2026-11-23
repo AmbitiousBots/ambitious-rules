@@ -3,6 +3,7 @@ import { cliEnvelope, type ModuleSpec } from "@ambitious/kit/cli/run-cli";
 import { parseArgs } from "@ambitious/kit/domain/args";
 import { MAX_SEED } from "@ambitious/kit/domain/clock";
 import { envelope, exitCodeOf, serialize } from "@ambitious/kit/domain/envelope";
+import { checkInputPaths, pathGuard } from "./input-paths.ts";
 
 export const runModule = async (spec: ModuleSpec, optionalInput: ReadonlySet<string>): Promise<void> => {
   const argv = process.argv.slice(2);
@@ -12,10 +13,12 @@ export const runModule = async (spec: ModuleSpec, optionalInput: ReadonlySet<str
     if (!process.stdin.isTTY) {
       for await (const chunk of process.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
     }
+    if (parsed.flags.in !== null) pathGuard()(parsed.flags.in);
     const value = Buffer.concat(chunks).toString("utf8");
     return value.trim() === "" && parsed.flags.in === null && optionalInput.has(parsed.words.join(" ")) ? "{}" : value;
   };
-  const result = await cliEnvelope(spec, {
+  const commands = Object.fromEntries(Object.entries(spec.commands).map(([name, command]) => [name, checkInputPaths(command)]));
+  const result = await cliEnvelope({ ...spec, commands }, {
     argv,
     env: process.env,
     binaryPath: process.argv[1] ?? "",

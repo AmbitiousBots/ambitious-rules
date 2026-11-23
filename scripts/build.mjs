@@ -5,7 +5,7 @@ import { bundleOptions } from '@ambitious/kit/build/bundle-options';
 import { build } from 'esbuild';
 
 const root = join(import.meta.dirname, '..');
-const notices = ['NOTICE', 'LICENSE', 'node_modules/zod/LICENSE'].map(path => readFileSync(join(root, path), 'utf8'));
+const notices = ['NOTICE', 'LICENSE', 'node_modules/zod/LICENSE', 'node_modules/re2js/LICENSE'].map(path => readFileSync(join(root, path), 'utf8'));
 const result = await build({
   ...bundleOptions({ root, module: 'rules' }),
   footer: { js: '/*\n' + notices.join('\n') + '\n*/' },

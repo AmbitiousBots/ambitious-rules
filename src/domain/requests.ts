@@ -1,10 +1,9 @@
 import { z } from "zod";
 import { failure } from "@ambitious/kit/domain/failure";
-import { WorkflowItemSchema, WorkflowSchema } from "./schema.ts";
+import { identifier as id, WorkflowItemSchema, WorkflowSchema } from "./schema.ts";
 
-const id = z.string().min(1);
 const positive = z.int().positive();
-const writeFields = { idem_key: z.string().trim().min(1).optional(), actor: id.optional() };
+const writeFields = { idem_key: z.string().trim().pipe(id).optional(), actor: id.optional() };
 export const putInput = z.strictObject({ workflow: WorkflowSchema, ...writeFields });
 export const getInput = z.strictObject({ id, version: positive.optional() });
 export const historyInput = z.strictObject({ id });

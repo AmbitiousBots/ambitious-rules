@@ -1,19 +1,20 @@
 import { z } from "zod";
 
-const id = z.string().min(1);
+export const identifier = z.string().min(1).refine(value => value.isWellFormed(), "Use well-formed Unicode.");
+const text = z.string().min(1);
 const status = z.enum(["ok", "warn", "error"]);
 const scalar = z.union([z.string(), z.number(), z.boolean()]);
 const node = z.object({
-  id,
+  id: identifier,
   type: z.enum(["trigger", "condition", "action", "human"]),
-  label: id,
+  label: text,
   status,
   badge: z.string().optional(),
   icon: z.string().optional(),
 });
-const edge = z.object({ from: id, to: id, label: z.string().optional() });
+const edge = z.object({ from: identifier, to: identifier, label: z.string().optional() });
 const clause = z.object({
-  field: id,
+  field: identifier,
   op: z.enum([
     "eq",
     "neq",
@@ -28,21 +29,21 @@ const clause = z.object({
   value: z.union([scalar, z.array(z.union([z.string(), z.number()]))]),
 });
 const rule = z.object({
-  id,
-  nodeId: id,
-  name: id,
+  id: identifier,
+  nodeId: identifier,
+  name: text,
   enabled: z.boolean(),
   when: z.array(clause),
   then: z.object({
-    action: id,
+    action: identifier,
     params: z.record(z.string(), z.unknown()).optional(),
   }),
 });
 
 export const WorkflowSchema = z
   .object({
-    id,
-    name: id,
+    id: identifier,
+    name: text,
     status,
     nodes: z.array(node),
     edges: z.array(edge),
@@ -81,14 +82,17 @@ export const WorkflowSchema = z
     });
   });
 
-export const WorkflowItemSchema = z.record(
+export const WorkflowItemSchema = z.unknown().refine(
+  value => value === null || typeof value !== "object" || !Object.hasOwn(value, "__proto__"),
+  "The item field __proto__ is unsupported."
+).pipe(z.record(
   z.string(),
   z.union([scalar, z.array(z.string())])
-);
+));
 export const SampleItemSchema = z.object({
-  id,
-  label: id,
-  description: id,
+  id: identifier,
+  label: text,
+  description: text,
   item: WorkflowItemSchema,
 });
 export type Workflow = z.infer<typeof WorkflowSchema>;

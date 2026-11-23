@@ -28,7 +28,7 @@ test("the first enabled match wins and each attempted rule explains its checks",
   assert.deepEqual(trace.path, ["start", "decide", "accept"]);
   assert.deepEqual(trace.steps.filter(s => s.ruleId).map(s => [s.ruleId, s.passed, s.reason]), [
     ["decide-skip", false, "Paused is disabled."],
-    ["decide-fail", false, "Invoice amount: 1200 (over 1000). known: false (differs from true)"],
+    ["decide-fail", false, "amount: 1200 (over 1000). known: false (differs from true)"],
     ["decide-yes", true, "No checks required."],
   ]);
 });

@@ -61,7 +61,7 @@ The [schema](src/domain/schema.ts) defines `Workflow`, `WorkflowItem` and the va
 }
 ```
 
-Nodes accept optional `badge` and `icon`. Status is `ok`, `warn` or `error`. Items map field names to strings, numbers, booleans or lists of strings. A clause value is a scalar or a list of strings and numbers. Rule actions may carry a `params` object.
+Nodes accept optional `badge` and `icon`. Status is `ok`, `warn` or `error`. Identifiers must be well-formed Unicode. The item field `__proto__` is reserved and produces `E_INPUT_SCHEMA`. Items map field names to strings, numbers, booleans or lists of strings. A clause value is a scalar or a list of strings and numbers. Rule actions may carry a `params` object.
 
 Evaluation starts at the first trigger. At a condition, the first enabled rule whose clauses all pass selects the edge labeled with its action. An empty clause list matches. The fallback is the first edge labeled `else`, followed in preference by the first unlabeled edge. The trace records attempted rules, including disabled rules, with their reasons. A human node with a successor continues the preview. A terminal node returns its ID as the outcome action. A cycle, ambiguous successor or missing route produces a `stopped` outcome with error status.
 
@@ -70,13 +70,13 @@ Evaluation starts at the first trigger. At a condition, the first enabled rule w
 | `eq`, `neq` | Compare typed values. Arrays compare element by element in order. |
 | `in`, `notIn` | Check scalar membership in a list. |
 | `contains` | Case-insensitive substring for strings, exact membership for string arrays. |
-| `matches` | Case-insensitive Unicode regular expression. An invalid pattern produces a failed check. |
+| `matches` | Case-insensitive RE2JS search with Unicode classes, alternation, repetition, anchors and captureless lookbehind. Lookahead, backreferences, invalid syntax and patterns longer than 1,024 UTF-16 code units produce a failed check. Matching time is linear in the text length for a fixed pattern. |
 | `gt`, `lt` | Compare numbers. |
 | `lookalikeOf` | Compare a string to known strings using the [lookalike matcher](src/domain/lookalike.ts). An exact case-insensitive match is excluded. |
 
 ## Runtime decisions
 
-The [evaluator](src/domain/evaluate.ts) is a pure, synchronous library. A web demo can vendor it and the schema. The handwritten evaluator implements ordered first-match rules, per-clause reasons and `lookalikeOf`. We considered the MIT-licensed `json-rules-engine`. Its asynchronous fact and event model would require an adapter for these semantics. The single-file release bundles the kit and Zod and requires zero separately installed runtime dependencies.
+The [evaluator](src/domain/evaluate.ts) is a pure, synchronous library. A web demo can vendor it and the schema. The handwritten evaluator implements ordered first-match rules, per-clause reasons and `lookalikeOf`. We considered the MIT-licensed `json-rules-engine`. Its asynchronous fact and event model would require an adapter for these semantics. The single-file release bundles the kit, Zod and RE2JS and requires zero separately installed runtime dependencies.
 
 Recording saves the workflow ID, version, item, SHA-256 of its canonical JSON, path, steps, outcome and time. Numbered versions reference immutable definitions. An inline recording saves the submitted definition in the trace and uses `sha256:<digest>` as its version. A numbered `version` input requires `workflow_id`. An inline recording leaves saved workflows untouched. With `record:true`, an optional `idem_key` makes the append safe to retry.
 

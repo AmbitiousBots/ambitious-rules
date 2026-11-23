@@ -73,6 +73,9 @@ export const features: Record<string, (home: string) => void> = {
     assert.equal(success(home, "rule disable", edit).changed, false);
   },
   evaluate(home) {
+    const rejected = run(home, "evaluate", { workflow, item: { filePath: "/home/box/agent-data/example.json" }, record: true });
+    assert.equal(rejected.status, 1);
+    assert.equal(object(items(rejected.envelope.errors)[0]).code, "E_FORBIDDEN_PATH");
     const expected = evaluate(workflow, item);
     assert.deepEqual(success(home, "evaluate", { workflow, item }), expected);
     put(home);

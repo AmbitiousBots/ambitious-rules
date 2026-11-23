@@ -35,7 +35,7 @@ export const phishing = demoWorkflow(
       "flag",
       "External executive asks for financial details",
       ["displayName", "in", ["Chief Executive", "Finance Director"]],
-      ["senderDomain", "matches", "^(?!example\\.com$).+$"],
+      ["senderDomain", "matches", "^.+(?<!^example\\.com)$"],
       [
         "body",
         "matches",

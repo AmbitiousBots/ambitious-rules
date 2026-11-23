@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { openDb } from "@ambitious/kit/db/open-db";
@@ -90,4 +90,61 @@ test("concurrent rule edits retain both changes and concurrent retries append on
   const request = { workflow_id: workflow.id, item: {}, record: true, idem_key: "once" };
   await Promise.all([concurrent(home, "evaluate", request), concurrent(home, "evaluate", request)]);
   assert.equal(items(success(home, "trace list").traces).length, 1);
+});
+
+test("recorded evaluations reject private paths and reserved item fields before creating storage", t => {
+  const home = scratch(t);
+  const workflow = fixture({ field: "__proto__", op: "eq", value: "blue" });
+  const alias = join(home, "alias");
+  symlinkSync("/home/box/agent-data", alias);
+  const requests = [
+    [{ filePath: "/home/box/agent-data/example.json" }, "E_FORBIDDEN_PATH"],
+    [{ files: [join(alias, "example.json")] }, "E_FORBIDDEN_PATH"],
+    [{ ["__proto__"]: "blue" }, "E_INPUT_SCHEMA"],
+  ] as const;
+  for (const [item, code] of requests) {
+    const result = run(home, "evaluate", { workflow, item, record: true, idem_key: "first" });
+    assert.equal(result.status, 1);
+    assert.equal(object(items(result.envelope.errors)[0]).code, code);
+    assert.equal(existsSync(join(home, "rules")), false);
+  }
+  success(home, "evaluate", { workflow, item: {}, record: true, idem_key: "first" });
+});
+
+test("malformed Unicode identifiers fail on creation and lookup", t => {
+  const home = scratch(t);
+  const id = "\ud800";
+  const workflow = fixture();
+  for (const [command, input] of [
+    ["workflow put", { workflow: { ...workflow, id } }],
+    ["workflow get", { id }], ["workflow history", { id }],
+    ["rule enable", { workflow_id: workflow.id, rule_id: id }],
+    ["trace list", { workflow_id: id }],
+    ["evaluate", { workflow_id: id, item: {} }],
+  ] as const) {
+    const result = run(home, command, input);
+    assert.equal(result.status, 1);
+    assert.equal(object(items(result.envelope.errors)[0]).code, "E_INPUT_SCHEMA");
+  }
+  assert.equal(existsSync(join(home, "rules")), false);
+  const valid = { ...workflow, id: "route-\u{1F680}" };
+  success(home, "workflow put", { workflow: valid });
+  assert.equal(object(success(home, "workflow get", { id: valid.id }).workflow).id, valid.id);
+});
+
+test("file input checks links before reading and accepts a public input file", t => {
+  const home = scratch(t);
+  const source = join(home, "input.json");
+  const alias = join(home, "alias");
+  const loop = join(home, "loop");
+  writeFileSync(source, JSON.stringify({ workflow: fixture(), item: {} }));
+  symlinkSync(source, alias);
+  symlinkSync(loop, loop);
+  for (const [args, status] of [[["--in", alias], 0], [[`--in=${loop}`], 1]] as const) {
+    const result = spawnSync(process.execPath, ["dist/ambitious-rules.mjs", "evaluate", ...args], {
+      encoding: "utf8", input: "", env: { ...process.env, AMBITIOUS_HOME: home },
+    });
+    assert.equal(result.status, status, result.stdout);
+    if (status === 1) assert.equal(object(items(object(JSON.parse(result.stdout)).errors)[0]).code, "E_FORBIDDEN_PATH");
+  }
 });

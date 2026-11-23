@@ -68,3 +68,11 @@ test("invalid patterns produce a failed clause with its reason", () => {
   assert.equal(result.outcome.action, "review");
   assert.equal(result.steps.find(step => step.ruleId)?.reason, "subject: Invoice. Invalid regex: (");
 });
+
+test("unsupported regex syntax and oversized patterns fail the clause", () => {
+  for (const value of ["(?=item)", "(item)\\1", "x".repeat(1025)]) {
+    const trace = evaluate(fixture({ field: "ciMachine", op: "matches", value }), { ciMachine: "item" });
+    assert.equal(trace.outcome.action, "review");
+    assert.equal(trace.steps.find(step => step.ruleId)?.reason, `ci Machine: item. Invalid regex: ${value}`);
+  }
+});
