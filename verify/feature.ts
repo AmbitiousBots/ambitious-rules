@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { items, object, run, runRaw, success } from "../test/cli-helper.ts";
 import { check, fixture } from "../test/fixture.ts";
@@ -47,12 +47,25 @@ export const features: Record<string, (home: string) => void> = {
   },
   "workflow-put"(home) {
     checkOverflow(home, "workflow put", {});
+    const named = { ...workflow, name: "\uFFFD" };
+    const request = { workflow: named, idem_key: "utf8" };
+    const [prefix, suffix] = JSON.stringify(request).split(named.name);
+    assert.ok(prefix && suffix);
+    const bytes = Buffer.concat([Buffer.from(prefix), Buffer.from([0xff]), Buffer.from(suffix)]);
+    const file = join(home, "input.json");
+    writeFileSync(file, bytes);
+    for (const result of [runRaw(home, "workflow put", bytes), runRaw(home, "workflow put", "", ["--in", file])]) {
+      assert.equal(result.status, 1, result.stdout);
+      assert.equal(object(items(result.envelope.errors)[0]).code, "E_INPUT_SCHEMA");
+      assert.equal(existsSync(join(home, "rules")), false);
+    }
     const invalid = { ...workflow, name: "\ud800" };
     const rejected = run(home, "workflow put", { workflow: invalid });
     assert.equal(rejected.status, 1);
     assert.equal(object(items(rejected.envelope.errors)[0]).code, "E_INPUT_SCHEMA");
-    assert.deepEqual(put(home), { workflow_id: id, version: 1, changed: true });
-    assert.deepEqual(put(home), { workflow_id: id, version: 1, changed: false });
+    assert.deepEqual(success(home, "workflow put", request), { workflow_id: id, version: 1, changed: true });
+    assert.equal(object(success(home, "workflow get", { id }).workflow).name, named.name);
+    assert.deepEqual(success(home, "workflow put", { workflow: named }), { workflow_id: id, version: 1, changed: false });
     assert.equal(success(home, "workflow put", { workflow: { ...workflow, name: "Changed" } }).version, 2);
   },
   "workflow-get"(home) {

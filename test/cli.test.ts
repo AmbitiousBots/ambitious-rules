@@ -5,7 +5,7 @@ import { existsSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { openDb } from "@ambitious/kit/db/open-db";
-import { items, object, run, scratch, success } from "./cli-helper.ts";
+import { items, object, run, runRaw, scratch, success } from "./cli-helper.ts";
 import { fixture } from "./fixture.ts";
 import { rule } from "../src/examples/seedData.ts";
 import { canonicalJson } from "../src/domain/encoding.ts";
@@ -21,6 +21,53 @@ function assertRejected(home: string, command: string, input: unknown, code: str
   assert.equal(result.status, 1, result.stdout);
   assert.equal(object(items(result.envelope.errors)[0]).code, code);
 }
+
+test("preview, recording, save and rule edits count parameter depth from the workflow root", t => {
+  const home = scratch(t);
+  let child: unknown = true;
+  for (let depth = 6; depth <= 32; depth++)
+    child = depth % 2 === 0 ? [child] : { next: child };
+  const workflow = workflowWithParams({ child });
+  const deeper = workflowWithParams({ child: [child] });
+  for (const [command, input] of [
+    ["evaluate", { workflow: deeper, item: {} }],
+    ["evaluate", { workflow: deeper, item: {}, record: true }],
+    ["workflow put", { workflow: deeper }],
+    ["rule set", { workflow_id: deeper.id, rule: deeper.rules[0] }],
+  ] as const) assertRejected(home, command, input, "E_INPUT_SCHEMA");
+  assert.equal(existsSync(join(home, "rules")), false);
+  const preview = success(home, "evaluate", { workflow, item: {} });
+  assert.deepEqual(success(home, "evaluate", { workflow, item: {}, record: true }), preview);
+  assert.deepEqual(object(success(home, "trace get", { id: 1 }).trace).workflow, JSON.parse(JSON.stringify(workflow)));
+  assert.equal(success(home, "workflow put", { workflow }).version, 1);
+  assert.equal(success(home, "rule set", { workflow_id: workflow.id, rule: workflow.rules[0] }).changed, false);
+});
+
+test("the input byte limit includes multibyte text and applies to stdin and --in", t => {
+  const json = JSON.stringify({ workflow: { ...fixture(), name: "Routé" } });
+  const atLimit = json + " ".repeat(1024 * 1024 - Buffer.byteLength(json));
+  for (const useFile of [false, true]) {
+    const home = scratch(t);
+    const file = join(home, "input.json");
+    const send = (text: string) => {
+      if (!useFile) return runRaw(home, "workflow put", text);
+      writeFileSync(file, text);
+      return runRaw(home, "workflow put", "", [`--in=${file}`]);
+    };
+    const rejected = send(atLimit + " ");
+    assert.equal(rejected.status, 1, rejected.stdout);
+    assert.equal(object(items(rejected.envelope.errors)[0]).code, "E_INPUT_SCHEMA");
+    assert.equal(existsSync(join(home, "rules")), false);
+    assert.equal(send(atLimit).status, 0);
+  }
+});
+
+test("an oversized match pattern fails input validation before saving", t => {
+  const home = scratch(t);
+  const workflow = fixture({ field: "text", op: "matches", value: "x".repeat(1025) });
+  assertRejected(home, "workflow put", { workflow }, "E_INPUT_SCHEMA");
+  assert.equal(existsSync(join(home, "rules")), false);
+});
 
 test("a write key replays its original response after later edits and rejects conflicting requests", t => {
   const home = scratch(t);

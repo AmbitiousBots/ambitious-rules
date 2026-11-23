@@ -1,31 +1,33 @@
 import { z } from "zod";
 
 const reservedKeys = new Set(["__proto__", "constructor", "prototype"]);
-const jsonInput = z.unknown().superRefine((input, ctx) => {
-  const pending: unknown[] = [input];
-  const visited = new WeakSet<object>();
-  while (pending.length) {
-    const value = pending.pop();
-    if (typeof value === "number" && !Number.isFinite(value)) {
-      ctx.addIssue({ code: "custom", message: "Use finite numbers in JSON input." });
-      return;
-    }
-    if (typeof value === "string" && !value.isWellFormed()) {
-      ctx.addIssue({ code: "custom", message: "Use well-formed Unicode in JSON strings and member names." });
-      return;
-    }
-    if (value !== null && typeof value === "object" && !visited.has(value)) {
-      visited.add(value);
-      for (const [key, child] of Object.entries(value)) {
-        if (reservedKeys.has(key)) {
-          ctx.addIssue({ code: "custom", message: `The member name ${key} is reserved.` });
-          return;
-        }
-        pending.push(key, child);
+const maxDepth = 32;
+export const maxPatternLength = 1024;
+
+function jsonInput(rootDepth = 1) {
+  return z.unknown().superRefine((input, ctx) => {
+    const visited = new WeakMap<object, number>();
+    const problem = (value: unknown, depth: number): string | undefined => {
+      if (typeof value === "number" && !Number.isFinite(value)) {
+        return "Use finite numbers in JSON input.";
       }
-    }
-  }
-});
+      if (typeof value === "string" && !value.isWellFormed()) {
+        return "Use well-formed Unicode in JSON strings and member names.";
+      }
+      if (value === null || typeof value !== "object") return;
+      if (depth > maxDepth) return `JSON objects and arrays may nest at most ${maxDepth} levels deep.`;
+      if ((visited.get(value) ?? 0) >= depth) return;
+      visited.set(value, depth);
+      for (const [key, child] of Object.entries(value)) {
+        if (reservedKeys.has(key)) return `The member name ${key} is reserved.`;
+        const issue = problem(key, depth) ?? problem(child, depth + 1);
+        if (issue) return issue;
+      }
+    };
+    const message = problem(input, rootDepth);
+    if (message) ctx.addIssue({ code: "custom", message });
+  });
+}
 
 export const identifier = z.string().min(1).refine(value => value.isWellFormed(), "Use well-formed Unicode.");
 const text = z.string().min(1);
@@ -54,6 +56,9 @@ const clause = z.object({
     "lookalikeOf",
   ]),
   value: z.union([scalar, z.array(z.union([z.string(), z.number()]))]),
+}).superRefine(({ op, value }, ctx) => {
+  if (op === "matches" && typeof value === "string" && value.length > maxPatternLength)
+    ctx.addIssue({ code: "custom", path: ["value"], message: `Use a pattern of at most ${maxPatternLength} UTF-16 code units.` });
 });
 const rule = z.object({
   id: identifier,
@@ -113,10 +118,11 @@ const item = z.record(
   z.string(),
   z.union([scalar, z.array(z.string())])
 );
-export const WorkflowSchema = jsonInput.pipe(workflowDefinition);
-export const RuleSchema = jsonInput.pipe(rule);
-export const WorkflowItemSchema = jsonInput.pipe(item);
-export const SampleItemSchema = jsonInput.pipe(z.object({
+export const WorkflowSchema = jsonInput().pipe(workflowDefinition);
+const ruleDepthInWorkflow = 3;
+export const RuleSchema = jsonInput(ruleDepthInWorkflow).pipe(rule);
+export const WorkflowItemSchema = jsonInput().pipe(item);
+export const SampleItemSchema = jsonInput().pipe(z.object({
   id: identifier,
   label: text,
   description: text,

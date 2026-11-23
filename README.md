@@ -21,7 +21,7 @@ A release consists of `ambitious-rules-0.1.0.mjs` and `SHA256SUMS`. Run `shasum 
 
 ## Commands
 
-Pass a JSON object on stdin or with `--in file.json`. Use `--db` to select a database. Fix `--now` and `--seed` to reproduce stdout bytes on the same database state. Each command prints one JSON envelope with `ok`, `schemaVersion`, `module`, `command`, `data`, `errors` and `meta`. Exit codes are 0 for success, 1 for caller errors and 2 for database or internal errors.
+Pass a UTF-8 JSON object of at most 1 MiB (1,048,576 bytes) on stdin or with `--in file.json`. Malformed UTF-8 and oversized requests produce `E_INPUT_SCHEMA`. Use `--db` to select a database. Fix `--now` and `--seed` to reproduce stdout bytes on the same database state. Each command prints one JSON envelope with `ok`, `schemaVersion`, `module`, `command`, `data`, `errors` and `meta`. Exit codes are 0 for success, 1 for caller errors and 2 for database or internal errors.
 
 | Command | Access | Input | Result in `data` |
 | --- | --- | --- | --- |
@@ -61,7 +61,7 @@ The [schema](src/domain/schema.ts) defines `Workflow`, `WorkflowItem` and the va
 }
 ```
 
-Nodes accept optional `badge` and `icon`. Status is `ok`, `warn` or `error`. All input strings, including JSON member names, must be well-formed Unicode. The member names `__proto__`, `constructor` and `prototype` produce `E_INPUT_SCHEMA` at any depth. Items map field names to strings, numbers, booleans or lists of strings. A clause value is a scalar or a list of strings and numbers. Rule actions may carry a `params` object.
+Nodes accept optional `badge` and `icon`. Status is `ok`, `warn` or `error`. All input strings, including JSON member names, must be well-formed Unicode. The member names `__proto__`, `constructor` and `prototype` produce `E_INPUT_SCHEMA` at any depth. Items map field names to strings, numbers, booleans or lists of strings. A clause value is a scalar or a list of strings and numbers. Rule actions may carry a `params` object. Workflow objects and arrays may nest up to 32 levels deep, counting the workflow object as level 1 and `params` as level 5. The same limit applies to inline previews, recordings, saves and rule edits.
 
 Evaluation starts at the first trigger. At a condition, the first enabled rule whose clauses all pass selects the edge labeled with its action. An empty clause list matches. The fallback is the first edge labeled `else`, followed in preference by the first unlabeled edge. The trace records attempted rules, including disabled rules, with their reasons. A human node with a successor continues the preview. A terminal node returns its ID as the outcome action. A cycle, ambiguous successor or missing route produces a `stopped` outcome with error status.
 
@@ -70,7 +70,7 @@ Evaluation starts at the first trigger. At a condition, the first enabled rule w
 | `eq`, `neq` | Compare typed values. Arrays compare element by element in order. |
 | `in`, `notIn` | Check scalar membership in a list. |
 | `contains` | Case-insensitive substring for strings, exact membership for string arrays. |
-| `matches` | Case-insensitive RE2JS search with Unicode classes, alternation, repetition, anchors and captureless lookbehind. Lookahead, backreferences, invalid syntax and patterns longer than 1,024 UTF-16 code units produce a failed check. Matching time is linear in the text length for a fixed pattern. |
+| `matches` | Case-insensitive RE2JS search with Unicode classes, alternation, repetition, anchors and captureless lookbehind. Lookahead, backreferences and invalid syntax produce a failed check. Patterns longer than 1,024 UTF-16 code units produce `E_INPUT_SCHEMA` during workflow validation. Matching time is linear in the text length for a fixed pattern. |
 | `gt`, `lt` | Compare numbers. |
 | `lookalikeOf` | Compare a string to known strings using the [lookalike matcher](src/domain/lookalike.ts). An exact case-insensitive match is excluded. |
 

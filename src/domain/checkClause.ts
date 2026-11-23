@@ -1,6 +1,6 @@
 import { RE2JS } from "re2js";
 import { lookalikeOf } from "./lookalike.ts";
-import type { Workflow, WorkflowItem } from "./schema.ts";
+import { maxPatternLength, type Workflow, type WorkflowItem } from "./schema.ts";
 
 type Clause = Workflow["rules"][number]["when"][number];
 type Value = Clause["value"];
@@ -26,7 +26,7 @@ function contains(actual: Actual, value: Value) {
 function matches(actual: Actual, value: Value) {
   if (typeof actual === "string" && typeof value === "string") {
     try {
-      if (value.length > 1024) return "invalid regex";
+      if (value.length > maxPatternLength) return "invalid regex";
       return RE2JS.compile(value, RE2JS.CASE_INSENSITIVE | RE2JS.LOOKBEHINDS).test(actual);
     } catch {
       return "invalid regex";

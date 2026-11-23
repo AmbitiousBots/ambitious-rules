@@ -22,8 +22,8 @@ export const scratch = (t: TestContext): string => {
   return home;
 };
 
-export const runRaw = (home: string, command: string, input: string, now = "2026-01-01T00:00:00Z", seed = 7) => {
-  const result = spawnSync(process.execPath, ["dist/ambitious-rules.mjs", ...command.split(" "), "--now", now, "--seed", String(seed)], {
+export const runRaw = (home: string, command: string, input: string | Buffer, flags: string[] = [], now = "2026-01-01T00:00:00Z", seed = 7) => {
+  const result = spawnSync(process.execPath, ["dist/ambitious-rules.mjs", ...command.split(" "), ...flags, "--now", now, "--seed", String(seed)], {
     input, encoding: "utf8", env: { ...process.env, AMBITIOUS_HOME: home },
   });
   assert.ifError(result.error);
@@ -36,7 +36,7 @@ export const runRaw = (home: string, command: string, input: string, now = "2026
 };
 
 export const run = (home: string, command: string, input: unknown = {}, now?: string, seed?: number) =>
-  runRaw(home, command, JSON.stringify(input), now, seed);
+  runRaw(home, command, JSON.stringify(input), [], now, seed);
 
 export const success = (home: string, command: string, input: unknown = {}, now?: string) => {
   const result = run(home, command, input, now);

@@ -1,21 +1,55 @@
 import { randomInt } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { cliEnvelope, type ModuleSpec } from "@ambitious/kit/cli/run-cli";
 import { parseArgs } from "@ambitious/kit/domain/args";
 import { MAX_SEED } from "@ambitious/kit/domain/clock";
 import { envelope, exitCodeOf, serialize } from "@ambitious/kit/domain/envelope";
+import { Failure, failure } from "@ambitious/kit/domain/failure";
+import { refuseAgentData } from "@ambitious/kit/paths/refuse-agent-data";
 import { checkInputPaths, pathGuard } from "./input-paths.ts";
+
+const maxInputBytes = 1024 * 1024;
+
+async function readUtf8(stream: AsyncIterable<Buffer>): Promise<string> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  try {
+    for await (const chunk of stream) {
+      size += chunk.length;
+      if (size > maxInputBytes)
+        throw failure("E_INPUT_SCHEMA", "Input exceeds 1 MiB.", "Send at most 1,048,576 bytes of UTF-8 JSON.");
+      chunks.push(chunk);
+    }
+  } catch (error) {
+    if (error instanceof Failure) throw error;
+    throw failure("E_INPUT_SCHEMA", "The input could not be read.", "Supply readable JSON on stdin or with --in.");
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(Buffer.concat(chunks, size));
+  } catch {
+    throw failure("E_INPUT_SCHEMA", "Input contains invalid UTF-8.", "Encode the JSON as UTF-8 and resend it.");
+  }
+}
 
 export const runModule = async (spec: ModuleSpec, optionalInput: ReadonlySet<string>): Promise<void> => {
   const argv = process.argv.slice(2);
   const parsed = parseArgs(argv);
+  const name = parsed.words.join(" ");
+  const file = parsed.flags.in;
+  if (file !== null && !parsed.flags.help && !parsed.problems.length && spec.commands[name]?.takesInput) {
+    const index = argv.findIndex(arg => arg === "--in" || arg.startsWith("--in="));
+    argv.splice(index, argv[index] === "--in" ? 2 : 1);
+  }
   const readStdin = async (): Promise<string> => {
-    const chunks: Buffer[] = [];
-    if (!process.stdin.isTTY) {
-      for await (const chunk of process.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+    const value = process.stdin.isTTY ? "" : await readUtf8(process.stdin);
+    if (file !== null) {
+      pathGuard()(file);
+      refuseAgentData(file);
+      if (value.trim() !== "")
+        throw failure("E_USAGE", "Input was given both on stdin and with --in.", "Supply JSON through one input source.");
+      return readUtf8(createReadStream(file));
     }
-    if (parsed.flags.in !== null) pathGuard()(parsed.flags.in);
-    const value = Buffer.concat(chunks).toString("utf8");
-    return value.trim() === "" && parsed.flags.in === null && optionalInput.has(parsed.words.join(" ")) ? "{}" : value;
+    return value.trim() === "" && optionalInput.has(name) ? "{}" : value;
   };
   const commands = Object.fromEntries(Object.entries(spec.commands).map(([name, command]) => [name, checkInputPaths(command)]));
   const result = await cliEnvelope({ ...spec, commands }, {
