@@ -1,4 +1,5 @@
 import { checkClause } from "./checkClause.ts";
+import { BoundedText, clip, display, maxStepLength } from "./explanation.ts";
 import type { Workflow, WorkflowItem } from "./schema.ts";
 
 type Node = Workflow["nodes"][number];
@@ -26,56 +27,54 @@ function selectBranch(
   rules: Workflow["rules"],
   edges: Edge[],
   item: WorkflowItem,
-  steps: Step[]
+  addStep: (step: Step) => void
 ) {
   const fallback =
     edges.find((edge) => edge.label === "else") ??
     edges.find((edge) => edge.label === undefined);
-  const failures: string[] = [];
+  const failures = new BoundedText(maxStepLength);
   for (const rule of rules) {
     if (rule.nodeId !== node.id) {
       continue;
     }
     const ids = { nodeId: node.id, ruleId: rule.id };
     if (!rule.enabled) {
-      steps.push({
+      addStep({
         ...ids,
         passed: false,
-        reason: `${rule.name} is disabled.`,
+        reason: `${display(rule.name)} is disabled.`,
       });
       continue;
     }
-    const checks = rule.when.map((clause) => checkClause(clause, item));
-    const passed = checks.every((check) => check.passed);
-    const reason =
-      checks.map((check) => check.reason).join(". ") || "No checks required.";
-    steps.push({ ...ids, passed, reason });
+    const explanation = new BoundedText(maxStepLength);
+    let passed = true;
+    for (const clause of rule.when) {
+      const check = checkClause(clause, item);
+      if (!check.passed) passed = false;
+      explanation.append(check.reason, explanation.text ? ". " : "");
+    }
+    addStep({ ...ids, passed, reason: explanation.text || "No checks required." });
     if (!passed) {
-      failures.push(
-        checks
-          .filter((check) => !check.passed)
-          .map((check) => check.reason)
-          .join(". ")
-      );
+      failures.append(rule.id, failures.text ? ", " : "");
       continue;
     }
     const branch = edges.find((edge) => edge.label === rule.then.action);
     if (!branch && fallback) {
-      steps.push({
+      addStep({
         nodeId: node.id,
         passed: true,
-        reason: `No edge labeled ${rule.then.action}. Taking the default branch.`,
+        reason: `No edge labeled ${display(rule.then.action)}. Taking the default branch.`,
       });
     }
     return branch ?? fallback;
   }
-  steps.push({
+  addStep({
     nodeId: node.id,
     passed: false,
     reason: [
       "No rule matched.",
-      ...failures,
       fallback && "Taking the default branch.",
+      failures.text && `Failed rules: ${failures.text}.`,
     ]
       .filter(Boolean)
       .join(" "),
@@ -86,12 +85,20 @@ function selectBranch(
 export function evaluate(workflow: Workflow, item: WorkflowItem): Evaluation {
   const path: string[] = [];
   const steps: Step[] = [];
+  const remaining = { rule: 12 * 1024, route: 4 * 1024 };
+  function addStep(step: Step) {
+    const kind = step.ruleId === undefined ? "route" : "rule";
+    const reason = clip(step.reason, Math.min(remaining[kind], maxStepLength));
+    remaining[kind] -= reason.length;
+    steps.push({ ...step, reason });
+  }
   const visited = new Set<string>();
   const nodes = new Map(workflow.nodes.map((entry) => [entry.id, entry]));
   let node = workflow.nodes.find((entry) => entry.type === "trigger");
 
   function stop(nodeId: string, label: string, summary: string): Evaluation {
-    steps.push({ nodeId, passed: false, reason: summary });
+    summary = clip(summary, maxStepLength);
+    addStep({ nodeId, passed: false, reason: summary });
     return {
       path,
       steps,
@@ -105,7 +112,7 @@ export function evaluate(workflow: Workflow, item: WorkflowItem): Evaluation {
     const edges = workflow.edges.filter((entry) => entry.from === nodeId);
     let edge: Edge | undefined;
     if (node.type === "condition") {
-      edge = selectBranch(node, workflow.rules, edges, item, steps);
+      edge = selectBranch(node, workflow.rules, edges, item, addStep);
       if (!edge) {
         return stop(nodeId, label, `No outgoing branch applies at ${label}.`);
       }
@@ -113,9 +120,8 @@ export function evaluate(workflow: Workflow, item: WorkflowItem): Evaluation {
       if (edges.length > 1) {
         return stop(nodeId, label, `${label} has more than one next step.`);
       }
-      const summary =
-        node.type === "human" ? `Needs a person: ${label}.` : label;
-      steps.push({ nodeId, passed: true, reason: summary });
+      const summary = clip(node.type === "human" ? `Needs a person: ${label}.` : label, maxStepLength);
+      addStep({ nodeId, passed: true, reason: summary });
       [edge] = edges;
       if (!edge) {
         return {

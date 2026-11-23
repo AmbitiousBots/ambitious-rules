@@ -1,4 +1,5 @@
 import { RE2JS } from "re2js";
+import { display } from "./explanation.ts";
 import { lookalikeOf } from "./lookalike.ts";
 import { maxPatternLength, type Workflow, type WorkflowItem } from "./schema.ts";
 
@@ -7,10 +8,6 @@ type Value = Clause["value"];
 type Actual = WorkflowItem[string];
 
 const wordBreak = /(?<=[a-z])(?=[A-Z])/gu;
-
-function display(value: Value | Actual): string {
-  return Array.isArray(value) ? `[${value.join(", ")}]` : String(value);
-}
 
 function contains(actual: Actual, value: Value) {
   if (typeof value === "string") {
@@ -88,7 +85,7 @@ const phrases = {
 
 export function checkClause(clause: Clause, item: WorkflowItem) {
   const { field, op, value } = clause;
-  const label = field.replace(wordBreak, " ");
+  const label = display(field).replace(wordBreak, " ");
   const actual = item[field];
   if (actual === undefined || !Object.hasOwn(item, field)) {
     return { passed: false, reason: `${label} is missing` };

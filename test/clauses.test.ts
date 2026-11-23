@@ -73,6 +73,18 @@ test("unsupported regex syntax and oversized patterns fail the clause", () => {
   for (const value of ["(?=item)", "(item)\\1", "x".repeat(1025)]) {
     const trace = evaluate(fixture({ field: "ciMachine", op: "matches", value }), { ciMachine: "item" });
     assert.equal(trace.outcome.action, "review");
-    assert.equal(trace.steps.find(step => step.ruleId)?.reason, `ci Machine: item. Invalid regex: ${value}`);
+    const expected = value.length === 1025 ? "x".repeat(120) + "… (1025 UTF-16 code units)" : value;
+    assert.equal(trace.steps.find(step => step.ruleId)?.reason, `ci Machine: item. Invalid regex: ${expected}`);
+  }
+});
+
+test("string and list excerpts preserve Unicode and comparisons use the full values", () => {
+  const value = "x".repeat(119) + "🜁";
+  for (const actual of [value, [value, "tail"]]) {
+    const trace = evaluate(fixture({ field: "field", op: "eq", value: actual }), { field: actual });
+    const reason = trace.steps.find(step => step.ruleId)?.reason;
+    assert.equal(trace.outcome.action, "accept");
+    assert.ok(reason && reason.isWellFormed());
+    assert.ok(reason.includes(Array.isArray(actual) ? "… (2 items)" : "… (121 UTF-16 code units)"));
   }
 });

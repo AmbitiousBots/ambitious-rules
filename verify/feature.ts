@@ -132,6 +132,18 @@ export const features: Record<string, (home: string) => void> = {
     assert.deepEqual(success(home, "evaluate", request), expected);
     assert.equal(run(home, "evaluate", request).stdout, run(home, "evaluate", request).stdout);
     assert.deepEqual(success(home, "trace list").traces, []);
+    const draft = fixture(...Array.from({ length: 4 }, () => check("message", "eq", "accepted")));
+    const longItem = { message: "x".repeat(50_000) };
+    const preview = success(home, "evaluate", { workflow: draft, item: longItem });
+    assert.equal(object(preview.outcome).action, "review");
+    const reasons = items(preview.steps).map(step => object(step).reason);
+    const excerpt = "x".repeat(120) + "… (50000 UTF-16 code units)";
+    assert.equal(reasons[1], Array(4).fill(`message: ${excerpt} (differs from accepted)`).join(". "));
+    assert.equal(reasons[2], "No rule matched. Taking the default branch. Failed rules: decide-yes.");
+    assert.deepEqual(success(home, "evaluate", { workflow: draft, item: longItem, record: true }), preview);
+    const trace = object(success(home, "trace get", { id: 1 }).trace);
+    assert.deepEqual(trace.steps, preview.steps);
+    assert.deepEqual(trace.item, longItem);
   },
   "trace-list"(home) {
     put(home);
