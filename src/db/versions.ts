@@ -1,6 +1,6 @@
 import type { Db } from "@ambitious/kit/db/open-db";
 import { failure } from "@ambitious/kit/domain/failure";
-import { canonicalJson } from "../domain/encoding.ts";
+import { canonicalJson, maxInputBytes } from "../domain/encoding.ts";
 import { validateWorkflow, type Workflow } from "../domain/schema.ts";
 import { storedObject, storedText } from "./storage.ts";
 
@@ -31,6 +31,9 @@ export function parseStoredWorkflow(definition: unknown): Workflow {
 export function saveVersion(db: Db, workflow: Workflow, command: string, at: string, actor = "caller") {
   const previous = findVersion(db, workflow.id);
   const definition = canonicalJson(workflow);
+  if (Buffer.byteLength(`{"workflow":${definition}}`) > maxInputBytes)
+    throw failure("E_INPUT_SCHEMA", "The saved workflow would exceed the 1 MiB input limit.",
+      "Reduce the workflow until its workflow put request fits in 1,048,576 bytes.");
   const changed = previous?.definition !== definition;
   const version = Number(previous?.version ?? 0) + Number(changed);
   if (changed) db.prepare("INSERT INTO versions (workflow_id, version, definition, actor, at, command) VALUES (?, ?, ?, ?, ?, ?)")

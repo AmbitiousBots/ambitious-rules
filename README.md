@@ -21,7 +21,7 @@ A release consists of `ambitious-rules-0.1.0.mjs` and `SHA256SUMS`. Run `shasum 
 
 ## Commands
 
-Pass a UTF-8 JSON object of at most 1 MiB (1,048,576 bytes) on stdin or with `--in file.json`. Malformed UTF-8 and oversized requests produce `E_INPUT_SCHEMA`. Use `--db` to select a database. Fix `--now` and `--seed` to reproduce stdout bytes on the same database state. Each command prints one JSON envelope with `ok`, `schemaVersion`, `module`, `command`, `data`, `errors` and `meta`. Exit codes are 0 for success, 1 for caller errors and 2 for database or internal errors.
+Pass a UTF-8 JSON object of at most 1 MiB (1,048,576 bytes) on stdin or with `--in file.json`. Any byte on stdin together with `--in` produces `E_USAGE`. Malformed UTF-8 and oversized requests produce `E_INPUT_SCHEMA`. Use `--db` to select a database. Fix `--now` and `--seed` to reproduce stdout bytes on the same database state. Each command prints one JSON envelope with `ok`, `schemaVersion`, `module`, `command`, `data`, `errors` and `meta`. Exit codes are 0 for success, 1 for caller errors and 2 for database or internal errors.
 
 | Command | Access | Input | Result in `data` |
 | --- | --- | --- | --- |
@@ -41,7 +41,7 @@ Pass a UTF-8 JSON object of at most 1 MiB (1,048,576 bytes) on stdin or with `--
 
 `workflow get` and stored `evaluate` default to the latest version. An inline preview opens no database. A stored preview opens the database read-only. With `record:true`, either form writes a trace. Database reads use read-only connections and require a current schema. Writes migrate first. Each change and its optional retry receipt commit in one transaction. Use one `idem_key` per intended write and reuse it for retries. A retry returns the original data, including after later edits. An unchanged definition keeps its version. Object key order has no effect on equality. Array order matters. The default actor is `caller`.
 
-`rule set` replaces a rule with the same ID in place or appends a new rule. Use `workflow put` to reorder rules. `seed` inserts only missing workflows. The six examples cover inbound email routing, anti-phishing, software delivery, customer onboarding, compliance deadlines and scheduling. Sample items live beside the [definitions](src/examples/demo).
+`rule set` replaces a rule with the same ID in place or appends a new rule. Use `workflow put` to reorder rules. Each saved version must fit in a 1 MiB `{"workflow":...}` request. An edit that exceeds the limit returns `E_INPUT_SCHEMA` and leaves its retry key available. `seed` inserts only missing workflows. The six examples cover inbound email routing, anti-phishing, software delivery, customer onboarding, compliance deadlines and scheduling. Sample items live beside the [definitions](src/examples/demo).
 
 ## Workflow format
 

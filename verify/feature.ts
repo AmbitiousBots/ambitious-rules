@@ -89,12 +89,23 @@ export const features: Record<string, (home: string) => void> = {
     assert.deepEqual(rows[1], { workflow_id: id, version: 2, at: "2026-01-02T12:00:00.000Z", actor: "editor", command: "rule disable" });
   },
   "rule-set"(home) {
-    put(home);
     const second = rule("decide", "else", "Otherwise");
-    success(home, "rule set", { workflow_id: id, rule: second });
+    const large = { ...workflow, name: "é".repeat(256 * 1024) };
+    success(home, "workflow put", { workflow: large });
+    const remaining = 1024 * 1024 - Buffer.byteLength(canonicalJson({ workflow: { ...large, rules: [...large.rules, second] } }));
+    const atLimit = { ...second, name: second.name + "x".repeat(remaining) };
+    const edit = { workflow_id: id, idem_key: "append" };
+    const oversized = run(home, "rule set", { ...edit, rule: { ...atLimit, name: atLimit.name + "x" } });
+    assert.equal(oversized.status, 1, oversized.stdout);
+    assert.equal(object(items(oversized.envelope.errors)[0]).code, "E_INPUT_SCHEMA");
+    const before = success(home, "workflow get", { id });
+    assert.equal(before.version, 1);
+    assert.deepEqual(before.workflow, JSON.parse(JSON.stringify(large)));
+    assert.equal(success(home, "rule set", { ...edit, rule: atLimit }).version, 2);
+    assert.equal(success(home, "workflow put", { workflow: { ...large, rules: [atLimit, ...large.rules] } }).version, 3);
     success(home, "rule set", { workflow_id: id, rule: { ...second, name: "Updated" } });
     const current = object(success(home, "workflow get", { id }).workflow);
-    assert.deepEqual(items(current.rules).map(r => object(r).name), ["Accept matching items", "Updated"]);
+    assert.deepEqual(items(current.rules).map(r => object(r).name), ["Updated", "Accept matching items"]);
   },
   "rule-enable"(home) {
     put(home);
@@ -140,6 +151,14 @@ export const features: Record<string, (home: string) => void> = {
       item_hash: createHash("sha256").update(canonicalJson(item)).digest("hex"), item, ...result });
   },
   seed(home) {
+    const file = join(home, "seed.json");
+    writeFileSync(file, "{}");
+    for (const [input, path] of [["\n", file], [Buffer.from([0xff]), file], [" ", join(home, "missing")]] as const) {
+      const conflict = runRaw(home, "seed", input, ["--in", path]);
+      assert.equal(conflict.status, 1, conflict.stdout);
+      assert.equal(object(items(conflict.envelope.errors)[0]).code, "E_USAGE");
+      assert.equal(existsSync(join(home, "rules")), false);
+    }
     assert.equal(items(success(home, "seed").created).length, 6);
     const first = object(items(success(home, "workflow list").workflows)[0]).workflow_id;
     const saved = object(success(home, "workflow get", { id: first }).workflow);

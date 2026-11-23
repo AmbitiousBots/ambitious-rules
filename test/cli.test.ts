@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { text } from "node:stream/consumers";
 import { test } from "node:test";
 import { openDb } from "@ambitious/kit/db/open-db";
 import { items, object, run, runRaw, scratch, success } from "./cli-helper.ts";
 import { fixture } from "./fixture.ts";
 import { rule } from "../src/examples/seedData.ts";
 import { canonicalJson } from "../src/domain/encoding.ts";
+import { openInputFile } from "../src/cli/input-file.ts";
 
 function workflowWithParams(params: Record<string, unknown>) {
   const workflow = fixture();
@@ -307,4 +309,22 @@ test("file input checks links before reading and accepts a public input file", t
     assert.equal(result.status, status, result.stdout);
     if (status === 1) assert.equal(object(items(object(JSON.parse(result.stdout)).errors)[0]).code, "E_FORBIDDEN_PATH");
   }
+});
+
+test("file input reads the checked descriptor after the caller retargets its symlink", async t => {
+  const home = scratch(t);
+  const first = join(home, "first.json");
+  const second = join(home, "second.json");
+  const alias = join(home, "input.json");
+  writeFileSync(first, '{"id":"first"}');
+  writeFileSync(second, '{"id":"second"}');
+  symlinkSync(first, alias);
+
+  const opening = openInputFile(alias);
+  unlinkSync(alias);
+  symlinkSync(second, alias);
+  const stream = await opening;
+  unlinkSync(first);
+  symlinkSync(second, first);
+  assert.equal(await text(stream), '{"id":"first"}');
 });

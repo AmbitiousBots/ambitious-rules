@@ -1,21 +1,21 @@
 import { randomInt } from "node:crypto";
-import { createReadStream } from "node:fs";
 import { cliEnvelope, type ModuleSpec } from "@ambitious/kit/cli/run-cli";
 import { parseArgs } from "@ambitious/kit/domain/args";
 import { MAX_SEED } from "@ambitious/kit/domain/clock";
 import { envelope, exitCodeOf, serialize } from "@ambitious/kit/domain/envelope";
 import { Failure, failure } from "@ambitious/kit/domain/failure";
-import { refuseAgentData } from "@ambitious/kit/paths/refuse-agent-data";
-import { checkInputPaths, pathGuard } from "./input-paths.ts";
+import { maxInputBytes } from "../domain/encoding.ts";
+import { openInputFile } from "./input-file.ts";
+import { checkInputPaths } from "./input-paths.ts";
 
-const maxInputBytes = 1024 * 1024;
-
-async function readUtf8(stream: AsyncIterable<Buffer>): Promise<string> {
+async function readUtf8(stream: AsyncIterable<Buffer>, requireEmpty = false): Promise<string> {
   const chunks: Buffer[] = [];
   let size = 0;
   try {
     for await (const chunk of stream) {
       size += chunk.length;
+      if (requireEmpty && size > 0)
+        throw failure("E_USAGE", "Input was given both on stdin and with --in.", "Supply JSON through one input source.");
       if (size > maxInputBytes)
         throw failure("E_INPUT_SCHEMA", "Input exceeds 1 MiB.", "Send at most 1,048,576 bytes of UTF-8 JSON.");
       chunks.push(chunk);
@@ -41,14 +41,8 @@ export const runModule = async (spec: ModuleSpec, optionalInput: ReadonlySet<str
     argv.splice(index, argv[index] === "--in" ? 2 : 1);
   }
   const readStdin = async (): Promise<string> => {
-    const value = process.stdin.isTTY ? "" : await readUtf8(process.stdin);
-    if (file !== null) {
-      pathGuard()(file);
-      refuseAgentData(file);
-      if (value.trim() !== "")
-        throw failure("E_USAGE", "Input was given both on stdin and with --in.", "Supply JSON through one input source.");
-      return readUtf8(createReadStream(file));
-    }
+    const value = process.stdin.isTTY ? "" : await readUtf8(process.stdin, file !== null);
+    if (file !== null) return readUtf8(await openInputFile(file));
     return value.trim() === "" && optionalInput.has(name) ? "{}" : value;
   };
   const commands = Object.fromEntries(Object.entries(spec.commands).map(([name, command]) => [name, checkInputPaths(command)]));
